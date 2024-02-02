@@ -1,0 +1,80 @@
+- name: Catalogue
+  hosts: catalogue
+  become: yes
+  tasks:
+  - name: disable old nodejs and enable nodejs
+    ansible.builtin.shell: dnf module disable nodejs -y ; dnf module enable nodejs:18
+
+  - name: Install Nodejs
+    ansible.builtin.dnf:
+      name: Nodejs
+      state: present
+
+  - name: Create roboshop user
+    ansible.builtin.user:
+      name: user
+
+  - name: removing existing app directory
+    ansible.builtin.file:
+      path: /app
+      state: absent
+
+  - name: Creating app directory
+    ansible.builtin.file:
+      path: /app
+      state: directory
+
+  - name : Download Catalogue application
+    ansible.builtin.get_url:
+      url: https://roboshop-builds.s3.amazonaws.com/catalogue.zip
+      det: /temp
+
+  - name: Extracting Catalogue application
+    ansible.builtin.unarchive:
+      src: /tmp/catalogue.zip
+      dest: /app
+      remote_src: yes
+
+  - name: Install Dependencies
+    ansible.builtin.command: npm install
+    args:
+      chdir: /app
+
+  - name: Copy catalogue service
+    ansible.builtin.copy:
+        src: catalogue.service
+        dest: /etc/systemd/system/catalogue.service
+
+  - name: deamon realod and start
+    ansible.builtin.systemd_service:
+      daemon_reload: true
+
+    # let's start after the data is loaded
+
+  - name: Copy mongodb repo
+    ansible.builtin.copy:
+      src: mongodb.repo
+      dest: /etc/yum.repos.d/mongodb.repo
+
+  - name: Install mongodb client
+    ansible.builtin.package:
+      name: mongodb-org-shell
+      state: present
+
+  - name: get the categories count
+    ansible.builtin.command: mongo --host arjund73.shop --quiet --eval 'db = db.getSiblingDB("catalogue"); db.products.count()'
+    register: product_count
+
+    # - name: print the count
+    #   ansible.builtin.debug:
+    #     msg: "product count: {{product_count}}"
+
+  - name: load catalogue data
+    ansible.builtin.command: mongo --host mongodb.daws76s.online < /app/schema/catalogue.js
+    when: product_count.stdout == "0" # keep double quotes
+
+  - name: start and enable catalogue
+    ansible.builtin.service:
+      name: catalogue
+      state: restarted
+      enabled: yes
